@@ -354,7 +354,7 @@ def app():
 
                         st.markdown(f"""
                         <span style='font-size:22px;'>
-                            📅 Database updated:
+                            🔔  Database updated:
                             <span style='background-color: white; padding: 4px 8px; border-radius: 16px; color: black;'>
                                 {timestamp}
                             </span>
@@ -371,10 +371,13 @@ def app():
                     # Execute the corresponding query based on user selection
                     if query_choice == "Supplier Product Availability":
                         result = pd.read_sql_query(q1, conn)
+                        result['available_above_200'] = result['available_product_count'].apply(lambda x: 'Yes' if x >= 200 else 'No')
                     elif query_choice == "Total Sales":
                         result = pd.read_sql_query(q2, conn)
                     elif query_choice == "Seller Payment Method":
                         result = pd.read_sql_query(q3, conn)
+                    
+                        result['payment_cash'] =result['payment_mode'].apply(lambda x: 'Yes' if x == 'CASH' else 'No')
 
                         # Find missing supplier_ids or those with null/blank payment methods
                         missing_suppliers = []
@@ -414,7 +417,17 @@ def app():
                     elif query_choice == "New Supplier Entry List":
                         result = pd.read_sql_query(q6, conn)
                     elif query_choice == "Supplier Sales vs Purchase":
-                        result = pd.read_sql_query(q7, conn)                    
+                        result = pd.read_sql_query(q7, conn)
+                        
+                        # Calculate DM% = (Total_Sales_amount - Purchase_Amount)/Total_Sales_amount * 100
+                        result['DM%'] = ((result['Total_Sales_amount'] - result['Purchase_Amount']) / 
+                                    result['Total_Sales_amount'] * 100).round(2)
+                        
+                        # Add Yes/No column based on 10% threshold
+                        result['DM_Above_10%'] = result['DM%'].apply(lambda x: 'Yes' if x > 10 else 'No')
+                        
+                        # Reorder columns for better display
+                        result = result[['supplier_id', 'Total_Sales_amount', 'Purchase_Amount','DM%','DM_Above_10%']]         
                     elif query_choice == "Lifetime Order Amount":
                         result = pd.read_sql_query(q8, conn)                    
                     elif query_choice == "NA Total":
@@ -424,9 +437,39 @@ def app():
                     elif query_choice == "CP":
                         result = pd.read_sql_query(q11, conn) 
                     elif query_choice == "Purchase Time":
-                        result = pd.read_sql_query(q12, conn) 
+                        # Get data without displaying
+                        result = pd.read_sql_query(q12, conn)
+                        
+                        # Calculate time difference
+                        result['hours_diff'] = (result['purchase_date'] - result['approved_date']).dt.total_seconds() / 3600
+                        
+                        # Calculate the average time difference per seller
+                        final_result = result.groupby('supplier_id').agg(
+                            avg_hours=('hours_diff', 'mean')
+                        ).reset_index()
+
+                        # Determine if the average time difference exceeds 24 hours
+                        final_result['meets_24h_target'] = final_result['avg_hours'].apply(lambda x: 'Yes' if x <= 24 else 'No')
+                        
+                        # Round the results to 2 decimal places
+                        final_result = final_result.round(2)
+                        
+                        # Create summary row as a DataFrame
+                        summary_row = pd.DataFrame({
+                            'supplier_id': ['SUMMARY'],
+                            'avg_hours': [f"avg_hour = {result['hours_diff'].mean().round(2)}"],
+                            'meets_24h_target': [f"Total Order = {len(result)}"]
+                        })
+                        
+                        # Combine with main results
+                        final_with_summary = pd.concat([final_result, summary_row], ignore_index=True)
+                        
+                        # Display the table with summary included
+                        st.write("Supplier 24-Hour Performance Check")
+                        st.dataframe(final_with_summary, hide_index=True)
                     elif query_choice == "Category Count":
                         result = pd.read_sql_query(q13, conn) 
+                        result['category_count_status'] = result['category_count'].apply(lambda x: 'Yes' if x >= 10 else 'No')
 
                     st.write(f"{query_choice} Results:")
                     st.dataframe(result)
